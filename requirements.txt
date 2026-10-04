@@ -1,3 +1,0 @@
-aiogram>=3.28,<4
-motor>=3.7,<4
-pymongo>=4.13,<5
