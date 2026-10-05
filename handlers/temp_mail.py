@@ -247,7 +247,10 @@ async def _open_b4(client: TelegramClient):
 
 
 async def _gen_mail(client: TelegramClient) -> str | None:
+    """The saved account itself messages @B4indomail_bot with /gen."""
     bot = await _open_b4(client)
+    await client.send_message(bot, "/start")
+    await asyncio.sleep(1)
     await client.send_message(bot, "/gen")
     await asyncio.sleep(4)
     msgs = await client.get_messages(bot, limit=5)
