@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     ContextTypes,
     CallbackQueryHandler,
@@ -901,16 +901,14 @@ async def run_temp_one_click(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     await progress("starting")
     result = await change_user_mail(client, progress, notify)
+    from handlers.temp_mail import log_result
+    await log_result(update.effective_user.id, result.get("email"), bool(result.get("ok")), result.get("error") or "set")
+    retry = InlineKeyboardMarkup([[InlineKeyboardButton("🔁 Retry", callback_data="mng_tempmail", style="success")]])
     if result.get("ok"):
-        await query.edit_message_text(
-            f"✅ Mail set to {result['email']}",
-            reply_markup=manage_dashboard_kb(),
-        )
+        await query.edit_message_text(f"✅ Mail set to {result['email']}", reply_markup=manage_dashboard_kb())
     else:
-        await query.edit_message_text(
-            f"❌ {result.get('error')}",
-            reply_markup=manage_dashboard_kb(),
-        )
+        extra = f"\nCode: {result['code']}" if result.get("code") else ""
+        await query.edit_message_text(f"❌ {result.get('error')}{extra}", reply_markup=retry)
     return DASHBOARD
 
 

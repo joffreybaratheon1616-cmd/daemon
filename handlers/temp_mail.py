@@ -115,6 +115,38 @@ async def next_free_combo(exclude: set | None = None):
     return None, None
 
 
+async def get_setting(key: str, default=None):
+    doc = await _col("temp_settings").find_one({"_id": key})
+    return default if not doc else doc.get("value", default)
+
+
+async def set_setting(key: str, value):
+    await _col("temp_settings").update_one({"_id": key}, {"$set": {"value": value}}, upsert=True)
+
+
+async def log_result(user_id, email, ok, detail):
+    await _col("mail_log").insert_one({
+        "user_id": user_id,
+        "email": email,
+        "ok": ok,
+        "detail": detail,
+        "at": datetime.now(timezone.utc),
+    })
+
+
+async def under_daily_limit(user_id: int) -> bool:
+    limit = int(await get_setting("daily_limit", 0) or 0)
+    if limit <= 0:
+        return True
+    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    count = await _col("mail_log").count_documents({"user_id": user_id, "ok": True, "at": {"$gte": start}})
+    return count < limit
+
+
+async def alert_owner(text: str):
+    return text
+
+
 async def mark_combo(email_lower: str, variant: str):
     await _col("temp_pool").update_one(
         {"email_lower": email_lower},
@@ -126,9 +158,11 @@ def _accounts_kb(rows):
     kb = []
     for row in rows:
         label = f"🗑 {(row.get('name') or row.get('phone') or 'account')[:28]}"
-        kb.append([InlineKeyboardButton(label, callback_data=f"tacc_del:{row['_id']}", style="danger")])
-    kb.append([InlineKeyboardButton("⚡ One-click Change Mail", callback_data="tacc_oneclick", style="success")])
-    kb.append([InlineKeyboardButton("📧 Use Temp Mail (pool)", callback_data="tacc_pool", style="primary")])
+        kb.append([
+            InlineKeyboardButton(label, callback_data=f"tacc_del:{row['_id']}", style="danger"),
+            InlineKeyboardButton("🧪 Test", callback_data=f"tacc_test:{row['_id']}", style="primary"),
+        ])
+    kb.append([InlineKeyboardButton("📧 Mail pool", callback_data="tacc_pool", style="primary")])
     return InlineKeyboardMarkup(kb)
 
 
@@ -261,7 +295,10 @@ async def _gen_mail(client: TelegramClient) -> str | None:
         for row in msg.buttons:
             for btn in row:
                 label = (getattr(btn, "text", "") or "").lower()
-                if "@" in label or "mail" in label or "." in label:
+                prefer = (await get_setting("domain") or "").lower()
+                if prefer and prefer not in label:
+                    continue
+                if "@" in label or "mail" in label or "." in label or prefer:
                     try:
                         await msg.click(text=btn.text)
                         clicked = True
@@ -388,12 +425,15 @@ async def change_user_mail(target: TelegramClient, progress, notify) -> dict:
                 ))
             except RPCError as e:
                 last = str(e)
+                if "FLOOD" in last.upper():
+                    await progress("flood wait, pausing 20s")
+                    await asyncio.sleep(20)
                 await progress("moving to next combo")
                 continue
             code = await _wait_otp(used, after_id, progress, 10)
-            await used.disconnect()
-            used = None
             if not code:
+                await used.disconnect()
+                used = None
                 last = "no code in 10 seconds"
                 await progress("moving to next combo")
                 continue
@@ -403,9 +443,17 @@ async def change_user_mail(target: TelegramClient, progress, notify) -> dict:
                     verification=EmailVerificationCode(code=code),
                 ))
                 await mark_combo(doc["email_lower"], variant)
+                try:
+                    await used.send_message(B4_BOT, f"/delete {doc['email']}")
+                except Exception:
+                    pass
+                await used.disconnect()
+                used = None
                 return {"ok": True, "email": variant, "code": code, "tried": tried}
             except RPCError as e:
-                last = str(e)
+                last = f"{e}. Code was {code}"
+                await used.disconnect()
+                used = None
                 await progress("moving to next combo")
                 continue
         finally:
@@ -506,6 +554,80 @@ async def one_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await client.disconnect()
 
 
+async def pool_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not _owner(user.id):
+        return
+    docs = await _col("temp_pool").find({}).sort("created_at", -1).to_list(length=15)
+    domain = await get_setting("domain", "any")
+    limit = await get_setting("daily_limit", 0)
+    lines = ["Mail pool (max 2 uses per combo):"] if docs else ["Mail pool is empty."]
+    for doc in docs:
+        uses = doc.get("combo_uses") or {}
+        used = sum(1 for n in uses.values() if int(n) >= MAX_USES)
+        lines.append(f"• {doc.get('email')} — full combos {used}")
+    lines.append(f"\nDomain: {domain}\nDaily limit: {limit or 'none'}")
+    text = "\n".join(lines)
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_text(text)
+    else:
+        await update.message.reply_text(text)
+
+
+async def setdomain_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _owner(update.effective_user.id):
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /setdomain instmart.shop")
+        return
+    await set_setting("domain", context.args[0].lstrip("@"))
+    await update.message.reply_text(f"Preferred domain set to {context.args[0]}")
+
+
+async def setlimit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _owner(update.effective_user.id):
+        return
+    if not context.args or not context.args[0].isdigit():
+        await update.message.reply_text("Usage: /setlimit 5  (0 = no limit)")
+        return
+    await set_setting("daily_limit", int(context.args[0]))
+    await update.message.reply_text(f"Daily one-click limit set to {context.args[0]}")
+
+
+async def maillog_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _owner(update.effective_user.id):
+        return
+    rows = await _col("mail_log").find({}).sort("at", -1).to_list(length=10)
+    if not rows:
+        await update.message.reply_text("No mail log yet.")
+        return
+    lines = ["Last results:"]
+    for row in rows:
+        mark = "OK" if row.get("ok") else "FAIL"
+        lines.append(f"{mark} {row.get('email') or '-'} — {row.get('detail')}")
+    await update.message.reply_text("\n".join(lines))
+
+
+async def on_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not _owner(query.from_user.id):
+        return
+    row = await get_temp_account(query.data.split(":", 1)[1])
+    if not row:
+        await query.message.reply_text("Account not found.")
+        return
+    client = await _client_from_row(row)
+    if not await client.is_user_authorized():
+        await client.disconnect()
+        await query.message.reply_text(f"Saved account {row.get('name') or row.get('phone')} session expired.")
+        return
+    email = await _gen_mail(client)
+    await client.disconnect()
+    await query.message.reply_text(f"Test mail: {email}" if email else "B4indomail did not return an address.")
+
+
 def register(application):
     conv = ConversationHandler(
         entry_points=[CommandHandler("addaccount", addaccount_start)],
@@ -519,7 +641,10 @@ def register(application):
     )
     application.add_handler(conv)
     application.add_handler(CommandHandler("shoaccounts", shoaccounts))
-    application.add_handler(CommandHandler("changemail", one_click))
+    application.add_handler(CommandHandler("pool", pool_cmd))
+    application.add_handler(CommandHandler("setdomain", setdomain_cmd))
+    application.add_handler(CommandHandler("setlimit", setlimit_cmd))
+    application.add_handler(CommandHandler("maillog", maillog_cmd))
     application.add_handler(CallbackQueryHandler(on_delete, pattern=r"^tacc_del:"))
-    application.add_handler(CallbackQueryHandler(one_click, pattern=r"^tacc_oneclick$"))
-    application.add_handler(CallbackQueryHandler(one_click, pattern=r"^tacc_pool$"))
+    application.add_handler(CallbackQueryHandler(on_test, pattern=r"^tacc_test:"))
+    application.add_handler(CallbackQueryHandler(pool_cmd, pattern=r"^tacc_pool$"))
