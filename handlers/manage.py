@@ -246,6 +246,8 @@ async def dashboard_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await show_otp_menu(update, context)
     if data == "mng_change_mail":
         return await ask_change_mail_email(update, context)
+    if data == "mng_tempmail":
+        return await run_temp_one_click(update, context)
     if data == "mng_mail_auto":
         return await run_auto_change_mail(update, context)
     if data == "mng_mail_manual":
@@ -875,6 +877,41 @@ async def start_manual_change_mail(update: Update, context: ContextTypes.DEFAULT
         reply_markup=cancel_kb("change_mail"),
     )
     return WAITING_CHANGE_MAIL_EMAIL
+
+
+async def run_temp_one_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    client = _get_client(context)
+    if not client or not client.is_connected():
+        await safe_edit(query, "❌ Session lost.", reply_markup=main_menu_kb())
+        return ConversationHandler.END
+    from handlers.temp_mail import change_user_mail
+
+    async def progress(text):
+        try:
+            await query.edit_message_text(f"⚡ One-click Change Mail\n\n{text}")
+        except Exception:
+            pass
+
+    async def notify(text):
+        try:
+            await query.message.reply_text(text)
+        except Exception:
+            pass
+
+    await progress("starting")
+    result = await change_user_mail(client, progress, notify)
+    if result.get("ok"):
+        await query.edit_message_text(
+            f"✅ Mail set to {result['email']}",
+            reply_markup=manage_dashboard_kb(),
+        )
+    else:
+        await query.edit_message_text(
+            f"❌ {result.get('error')}",
+            reply_markup=manage_dashboard_kb(),
+        )
+    return DASHBOARD
 
 
 async def run_auto_change_mail(update: Update, context: ContextTypes.DEFAULT_TYPE):

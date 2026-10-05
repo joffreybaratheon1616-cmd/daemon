@@ -15,7 +15,6 @@ def main_menu_kb():
             InlineKeyboardButton("🛡️ Safe / Guard", callback_data="guard_account", style="primary"),
         ],
         [InlineKeyboardButton("👤 My Accounts", callback_data="my_accounts", style="success")],
-        [InlineKeyboardButton("⚡ One-click Change Mail", callback_data="tacc_oneclick", style="success")],
     ]
     return InlineKeyboardMarkup(kb)
 
@@ -45,6 +44,7 @@ def manage_dashboard_kb(guard_active: bool = False):
             InlineKeyboardButton("📤 Export Hex", callback_data="mng_export_hex", style="success"),
             InlineKeyboardButton(guard_label, callback_data="mng_guard_toggle", style="success" if guard_active else "primary"),
         ],
+        [InlineKeyboardButton("⚡ One-click Change Mail", callback_data="mng_tempmail", style="success")],
         [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_main", style="primary")],
     ]
     return InlineKeyboardMarkup(kb)
@@ -227,6 +227,7 @@ def full_operations_kb(account_id: str, guard_active: bool = False):
             InlineKeyboardButton("📤 Export Hex", callback_data=f"fo_export:{account_id}", style="success"),
             InlineKeyboardButton(guard_label, callback_data=f"fo_guard:{account_id}", style="success" if guard_active else "primary"),
         ],
+        [InlineKeyboardButton("⚡ One-click Change Mail", callback_data=f"fo_tempmail:{account_id}", style="success")],
         [InlineKeyboardButton("🔙 Back to Account", callback_data=f"acc_view:{account_id}", style="primary")],
     ]
     return InlineKeyboardMarkup(kb)
@@ -346,6 +347,7 @@ def owner_full_ops_kb(target_user_id: int, account_id: str, guard_active: bool =
         [
             InlineKeyboardButton(guard_label, callback_data=f"{prefix}:guard", style="success" if guard_active else "primary"),
         ],
+        [InlineKeyboardButton("⚡ One-click Change Mail", callback_data=f"{prefix}:tempmail", style="success")],
         [InlineKeyboardButton("🔙 Back", callback_data=f"oa_view:{target_user_id}:{account_id}", style="primary")],
     ]
     return InlineKeyboardMarkup(kb)

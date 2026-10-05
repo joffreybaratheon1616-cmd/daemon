@@ -287,9 +287,26 @@ async def _gen_mail(client: TelegramClient) -> str | None:
     return None
 
 
-async def _wait_otp(client: TelegramClient, after_id: int, seconds: int = 60) -> str | None:
+_combo_lock = asyncio.Lock()
+_locked_combos: set[str] = set()
+
+
+async def _lock_combo(variant: str) -> bool:
+    async with _combo_lock:
+        if variant in _locked_combos:
+            return False
+        _locked_combos.add(variant)
+        return True
+
+
+async def _unlock_combo(variant: str):
+    async with _combo_lock:
+        _locked_combos.discard(variant)
+
+
+async def _wait_otp(client: TelegramClient, after_id: int, progress, seconds: int = 10) -> str | None:
     bot = await _open_b4(client)
-    for _ in range(seconds // 4):
+    for waited in range(1, seconds + 1):
         msgs = await client.get_messages(bot, limit=5)
         for msg in msgs:
             if msg.id <= after_id:
@@ -300,9 +317,102 @@ async def _wait_otp(client: TelegramClient, after_id: int, seconds: int = 60) ->
                 continue
             m = OTP_RE.search(text)
             if m:
+                await progress("code received")
                 return m.group(1)
-        await asyncio.sleep(4)
+        await progress(f"waiting for code… {waited}s")
+        await asyncio.sleep(1)
     return None
+
+
+async def change_user_mail(target: TelegramClient, progress, notify) -> dict:
+    """Set login email on the user's account. Saved accounts only read B4indomail."""
+    rows = await list_temp_accounts()
+    if not rows:
+        return {"ok": False, "error": "No saved temp-mail accounts. Owner must /addaccount"}
+    tried = 0
+    last = ""
+    exclude: set[str] = set()
+    for _round in range(12):
+        doc, variant = await next_free_combo(exclude)
+        reader = None
+        if not variant:
+            for row in rows:
+                try:
+                    reader = await _client_from_row(row)
+                    if not await reader.is_user_authorized():
+                        await notify(f"Saved account {row.get('name') or row.get('phone')} session expired.")
+                        await reader.disconnect()
+                        reader = None
+                        continue
+                    email = await _gen_mail(reader)
+                    await reader.disconnect()
+                    reader = None
+                    if email:
+                        await upsert_pool_mail(email)
+                        break
+                except Exception as e:
+                    last = str(e)
+                    if reader:
+                        await reader.disconnect()
+                    reader = None
+            doc, variant = await next_free_combo(exclude)
+            if not variant:
+                return {"ok": False, "error": last or "Could not generate a mail", "tried": tried}
+        if not await _lock_combo(variant):
+            exclude.add(variant)
+            await progress("combo locked, moving to next combo")
+            continue
+        exclude.add(variant)
+        tried += 1
+        await progress(f"trying {variant}")
+        try:
+            used = None
+            for row in rows:
+                used = await _client_from_row(row)
+                if not await used.is_user_authorized():
+                    await notify(f"Saved account {row.get('name') or row.get('phone')} session expired.")
+                    await used.disconnect()
+                    used = None
+                    continue
+                break
+            if used is None:
+                last = "every saved account session expired"
+                continue
+            bot = await _open_b4(used)
+            latest = await used.get_messages(bot, limit=1)
+            after_id = latest[0].id if latest else 0
+            try:
+                await target(SendVerifyEmailCodeRequest(
+                    purpose=EmailVerifyPurposeLoginChange(),
+                    email=variant,
+                ))
+            except RPCError as e:
+                last = str(e)
+                await progress("moving to next combo")
+                continue
+            code = await _wait_otp(used, after_id, progress, 10)
+            await used.disconnect()
+            used = None
+            if not code:
+                last = "no code in 10 seconds"
+                await progress("moving to next combo")
+                continue
+            try:
+                await target(VerifyEmailRequest(
+                    purpose=EmailVerifyPurposeLoginChange(),
+                    verification=EmailVerificationCode(code=code),
+                ))
+                await mark_combo(doc["email_lower"], variant)
+                return {"ok": True, "email": variant, "code": code, "tried": tried}
+            except RPCError as e:
+                last = str(e)
+                await progress("moving to next combo")
+                continue
+        finally:
+            await _unlock_combo(variant)
+            if used:
+                await used.disconnect()
+    return {"ok": False, "error": last or "all combos failed", "tried": tried}
 
 
 async def apply_temp_mail(client: TelegramClient, progress) -> dict:
@@ -333,7 +443,7 @@ async def apply_temp_mail(client: TelegramClient, progress) -> dict:
         except RPCError as e:
             last = str(e)
             continue
-        code = await _wait_otp(client, after_id)
+        code = await _wait_otp(client, after_id, progress, 10)
         if not code:
             last = "No new OTP in B4indomail chat"
             continue

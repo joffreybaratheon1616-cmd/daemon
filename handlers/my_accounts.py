@@ -535,6 +535,27 @@ async def full_ops_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_edit(query, text, parse_mode="Markdown", reply_markup=fo_back_kb(account_id))
         return ACCOUNT_DETAIL
 
+    if action == "fo_tempmail":
+        from handlers.temp_mail import change_user_mail
+
+        async def progress(text, q=query):
+            try:
+                await q.edit_message_text(f"⚡ One-click Change Mail\n\n{text}")
+            except Exception:
+                pass
+
+        async def notify(text, q=query):
+            try:
+                await q.message.reply_text(text)
+            except Exception:
+                pass
+
+        await progress("starting")
+        result = await change_user_mail(client, progress, notify)
+        text = f"✅ Mail set to {result['email']}" if result.get("ok") else f"❌ {result.get('error')}"
+        await query.edit_message_text(text, reply_markup=fo_back_kb(account_id))
+        return ACCOUNT_DETAIL
+
     if action == "fo_changemail":
         return await fo_ask_change_mail(update, context, account_id, client)
 
