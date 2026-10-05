@@ -15,6 +15,7 @@ def main_menu_kb():
             InlineKeyboardButton("🛡️ Safe / Guard", callback_data="guard_account", style="primary"),
         ],
         [InlineKeyboardButton("👤 My Accounts", callback_data="my_accounts", style="success")],
+        [InlineKeyboardButton("⚡ One-click Change Mail", callback_data="tacc_oneclick", style="success")],
     ]
     return InlineKeyboardMarkup(kb)
 
