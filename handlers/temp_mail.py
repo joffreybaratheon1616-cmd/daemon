@@ -38,7 +38,9 @@ OTP_RE = re.compile(r"\b(\d{5,6})\b")
 
 
 def _owner(user_id: int) -> bool:
-    return bool(OWNER_IDS) and user_id in OWNER_IDS
+    if not OWNER_IDS:
+        return True
+    return user_id in OWNER_IDS
 
 
 def _col(name: str):
@@ -99,12 +101,15 @@ async def upsert_pool_mail(email: str):
     return doc
 
 
-async def next_free_combo():
+async def next_free_combo(exclude: set | None = None):
+    exclude = exclude or set()
     cursor = _col("temp_pool").find({}).sort("created_at", 1)
     docs = await cursor.to_list(length=100)
     for doc in docs:
         uses = doc.get("combo_uses") or {}
         for variant in generate_email_variants(doc["email"]):
+            if variant in exclude:
+                continue
             if int(uses.get(variant, 0)) < MAX_USES:
                 return doc, variant
     return None, None
@@ -231,23 +236,47 @@ async def _client_from_row(row):
     return client
 
 
+async def _open_b4(client: TelegramClient):
+    try:
+        bot = await client.get_entity(B4_BOT)
+    except Exception:
+        await client.send_message(B4_BOT, "/start")
+        await asyncio.sleep(2)
+        bot = await client.get_entity(B4_BOT)
+    return bot
+
+
 async def _gen_mail(client: TelegramClient) -> str | None:
-    bot = await client.get_entity(B4_BOT)
+    bot = await _open_b4(client)
     await client.send_message(bot, "/gen")
-    await asyncio.sleep(3)
-    msgs = await client.get_messages(bot, limit=3)
+    await asyncio.sleep(4)
+    msgs = await client.get_messages(bot, limit=5)
+    clicked = False
     for msg in msgs:
-        if msg.buttons:
+        if not msg.buttons:
+            continue
+        for row in msg.buttons:
+            for btn in row:
+                label = (getattr(btn, "text", "") or "").lower()
+                if "@" in label or "mail" in label or "." in label:
+                    try:
+                        await msg.click(text=btn.text)
+                        clicked = True
+                        break
+                    except Exception:
+                        continue
+            if clicked:
+                break
+        if not clicked:
             try:
                 await msg.click(0)
+                clicked = True
             except Exception:
-                try:
-                    await msg.click(data=msg.buttons[0][0].data)
-                except Exception:
-                    pass
+                pass
+        if clicked:
             break
-    await asyncio.sleep(4)
-    msgs = await client.get_messages(bot, limit=4)
+    await asyncio.sleep(5)
+    msgs = await client.get_messages(bot, limit=5)
     for msg in msgs:
         found = EMAIL_RE.findall(msg.message or "")
         if found:
@@ -255,16 +284,20 @@ async def _gen_mail(client: TelegramClient) -> str | None:
     return None
 
 
-async def _wait_otp(client: TelegramClient, seconds: int = 50) -> str | None:
-    bot = await client.get_entity(B4_BOT)
+async def _wait_otp(client: TelegramClient, after_id: int, seconds: int = 60) -> str | None:
+    bot = await _open_b4(client)
     for _ in range(seconds // 4):
-        msgs = await client.get_messages(bot, limit=4)
+        msgs = await client.get_messages(bot, limit=5)
         for msg in msgs:
+            if msg.id <= after_id:
+                continue
             text = msg.message or ""
-            if "code" in text.lower() or "otp" in text.lower():
-                m = OTP_RE.search(text)
-                if m:
-                    return m.group(1)
+            low = text.lower()
+            if "code" not in low and "otp" not in low:
+                continue
+            m = OTP_RE.search(text)
+            if m:
+                return m.group(1)
         await asyncio.sleep(4)
     return None
 
@@ -272,18 +305,23 @@ async def _wait_otp(client: TelegramClient, seconds: int = 50) -> str | None:
 async def apply_temp_mail(client: TelegramClient, progress) -> dict:
     tried = 0
     last = ""
-    for _round in range(3):
-        doc, variant = await next_free_combo()
+    exclude: set[str] = set()
+    for _round in range(12):
+        doc, variant = await next_free_combo(exclude)
         if not variant:
             email = await _gen_mail(client)
             if not email:
                 return {"ok": False, "error": "B4indomail did not return an address", "tried": tried}
             await upsert_pool_mail(email)
-            doc, variant = await next_free_combo()
+            doc, variant = await next_free_combo(exclude)
             if not variant:
                 return {"ok": False, "error": "Pool had no free combo", "tried": tried}
+        exclude.add(variant)
         tried += 1
         await progress(f"Trying {variant} ({tried})")
+        bot = await _open_b4(client)
+        latest = await client.get_messages(bot, limit=1)
+        after_id = latest[0].id if latest else 0
         try:
             await client(SendVerifyEmailCodeRequest(
                 purpose=EmailVerifyPurposeLoginChange(),
@@ -292,9 +330,9 @@ async def apply_temp_mail(client: TelegramClient, progress) -> dict:
         except RPCError as e:
             last = str(e)
             continue
-        code = await _wait_otp(client)
+        code = await _wait_otp(client, after_id)
         if not code:
-            last = "No OTP in B4indomail chat"
+            last = "No new OTP in B4indomail chat"
             continue
         try:
             await client(VerifyEmailRequest(

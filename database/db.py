@@ -37,10 +37,22 @@ class Database:
             except Exception as e:
                 logger.warning("Could not inspect indexes on %s: %s", coll_name, e)
 
-        await self.db.accounts.create_index([("owner_id", 1), ("user_id", 1)], unique=False)
-        await self.db.sudo_users.create_index("user_id", unique=False)
-        await self.db.mails.create_index("owner_id", unique=False)
-        await self.db.mails.create_index([("owner_id", 1), ("email_lower", 1)], unique=False)
+        for spec in (
+            ("accounts", [("owner_id", 1), ("user_id", 1)]),
+            ("sudo_users", "user_id"),
+            ("mails", "owner_id"),
+            ("mails", [("owner_id", 1), ("email_lower", 1)]),
+            ("temp_accounts", "phone"),
+            ("temp_pool", "email_lower"),
+        ):
+            coll_name, keys = spec
+            try:
+                await self.db[coll_name].create_index(keys, unique=False)
+            except Exception as e:
+                logger.warning("Could not create index on %s: %s", coll_name, e)
+                if "bad auth" in str(e).lower() or "Authentication failed" in str(e):
+                    logger.error("MongoDB login failed. Check MONGO_URI user/password and Atlas IP 0.0.0.0/0.")
+                    break
 
     def get_db(self):
         return self.db
