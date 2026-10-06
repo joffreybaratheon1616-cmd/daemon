@@ -43,12 +43,12 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "├─ **Manage Account** — connect session (hex / string), devices, clear, OTP, mail, 2FA, export hex, safe guard\n"
         "├─ **Safe / Guard** — auto-terminate new logins\n"
         "├─ **My Accounts** — list saved accounts + Full Operations\n"
+        "├─ **One-click Change Mail** — on the account dashboard and Full Operations\n"
         "├─ `/addmail email app_password` — Save & verify login mail (Gmail / Outlook / Yahoo)\n"
         "├─ `/checkmail` — Check saved mail\n"
         "├─ `/mymail` — View saved mail\n"
         "└─ `/rmmail` — Remove saved mail\n\n"
-        "_After saving mail, use **Change Mail → Use Saved Mail** for one-click "
-        "auto (reads OTP from inbox + tries all capitalisation variants)._\n\n"
+        "_One-click uses the owner's temp-mail pool. You cannot add or remove those accounts._\n\n"
         "**💡 Tip:** Send a raw 512-char hex key in DM or group (if you are authorized) and the bot will auto-verify it.\n\n"
     )
 
@@ -64,6 +64,12 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += (
             "**👑 Owner Commands:**\n"
             "├─ `/access <user_id>` — Control another user's stored accounts\n"
+            "├─ `/addaccount` — Save an account that talks to @B4indomail_bot\n"
+            "├─ `/shoaccounts` — List those accounts, remove or test one\n"
+            "├─ `/pool` — Temp-mail pool and combo use\n"
+            "├─ `/setdomain instmart.shop` — Preferred /gen domain\n"
+            "├─ `/setlimit 5` — Daily one-click limit (0 = none)\n"
+            "├─ `/maillog` — Last mail-change results\n"
             "├─ `/addsudo userid` — Add a sudo user\n"
             "├─ `/rmsudo userid` — Remove a sudo user\n"
             "└─ `/sudolist` — List all sudo users\n\n"
