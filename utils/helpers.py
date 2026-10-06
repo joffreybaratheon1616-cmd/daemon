@@ -660,7 +660,13 @@ async def auto_set_login_email(
                 continue
             uses = mb.get("combo_uses") or {}
             for v in generate_email_variants(em):
-                if int(uses.get(v, 0)) >= max_uses_per_combo:
+                raw = uses.get(v, 0)
+                used = raw if isinstance(raw, (int, float, str)) else 0
+                try:
+                    used = int(used)
+                except (TypeError, ValueError):
+                    used = 0
+                if used >= max_uses_per_combo:
                     continue
                 jobs.append((v, em, pw, em.lower()))
     else:

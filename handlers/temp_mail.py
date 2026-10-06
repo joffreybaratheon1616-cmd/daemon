@@ -41,7 +41,19 @@ def cancelled(user_id: int) -> bool:
     return user_id in _cancel
 
 B4_BOT = "B4indomail_bot"
-MAX_USES = 2
+def _safe_int(value, default=0) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float, str, bytes)):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+    return default
+
+
+def _combo_key(variant: str) -> str:
+    return variant.replace(".", "\uff0e").replace("$", "")
 PHONE, CODE, PASSWORD = range(3)
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 OTP_RE = re.compile(r"\b(\d{5,6})\b")
@@ -120,7 +132,7 @@ async def next_free_combo(exclude: set | None = None):
         for variant in generate_email_variants(doc["email"]):
             if variant in exclude:
                 continue
-            if int(uses.get(variant, 0)) < MAX_USES:
+            if _safe_int(uses.get(_combo_key(variant), uses.get(variant, 0))) < MAX_USES:
                 return doc, variant
     return None, None
 
@@ -145,7 +157,7 @@ async def log_result(user_id, email, ok, detail):
 
 
 async def under_daily_limit(user_id: int) -> bool:
-    limit = int(await get_setting("daily_limit", 0) or 0)
+    limit = _safe_int(await get_setting("daily_limit", 0), 0)
     if limit <= 0:
         return True
     start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -160,7 +172,7 @@ async def alert_owner(text: str):
 async def mark_combo(email_lower: str, variant: str):
     await _col("temp_pool").update_one(
         {"email_lower": email_lower},
-        {"$inc": {f"combo_uses.{variant}": 1}},
+        {"$inc": {f"combo_uses.{_combo_key(variant)}": 1}},
     )
 
 
@@ -588,7 +600,7 @@ async def pool_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = ["Mail pool (max 2 uses per combo):"] if docs else ["Mail pool is empty."]
     for doc in docs:
         uses = doc.get("combo_uses") or {}
-        used = sum(1 for n in uses.values() if int(n) >= MAX_USES)
+        used = sum(1 for n in uses.values() if _safe_int(n) >= MAX_USES)
         lines.append(f"• {doc.get('email')} — full combos {used}")
     lines.append(f"\nDomain: {domain}\nDaily limit: {limit or 'none'}")
     text = "\n".join(lines)

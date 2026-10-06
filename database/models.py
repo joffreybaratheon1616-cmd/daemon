@@ -193,7 +193,13 @@ async def increment_combo_use(owner_id: int, email_lower: str, variant: str) -> 
     doc = await collection.find_one({"owner_id": owner_id, "email_lower": email_lower})
     if not doc:
         return 1
-    return int((doc.get("combo_uses") or {}).get(variant, 1))
+    raw = (doc.get("combo_uses") or {}).get(variant, 0)
+    if isinstance(raw, dict):
+        return 0
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
 
 
 async def remove_mail(owner_id: int, email: str | None = None):
