@@ -35,47 +35,47 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_admin = is_owner(user_id)
     is_sudo = await is_sudo_user(user_id)
 
-    text = "📚 **Help — Available Commands**\n\n"
+    text = "📚 <b>Help — Available Commands</b>\n\n"
     text += (
-        "**👤 Your Features:**\n"
-        "├─ `/start` — Start the bot & show main menu\n"
-        "├─ `/help` — Show this help message\n"
-        "├─ **Manage Account** — connect session (hex / string), devices, clear, OTP, mail, 2FA, export hex, safe guard\n"
-        "├─ **Safe / Guard** — auto-terminate new logins\n"
-        "├─ **My Accounts** — list saved accounts + Full Operations\n"
-        "├─ **One-click Change Mail** — on the account dashboard and Full Operations\n"
-        "├─ `/addmail email app_password` — Save & verify login mail (Gmail / Outlook / Yahoo)\n"
-        "├─ `/checkmail` — Check saved mail\n"
-        "├─ `/mymail` — View saved mail\n"
-        "└─ `/rmmail` — Remove saved mail\n\n"
-        "_One-click uses the owner's temp-mail pool. You cannot add or remove those accounts._\n\n"
-        "**💡 Tip:** Send a raw 512-char hex key in DM or group (if you are authorized) and the bot will auto-verify it.\n\n"
+        "<b>👤 Your Features:</b>\n"
+        "├─ /start — Start the bot and show main menu\n"
+        "├─ /help — Show this help message\n"
+        "├─ <b>Manage Account</b> — connect session, devices, clear, OTP, mail, 2FA, export hex, safe guard\n"
+        "├─ <b>Safe / Guard</b> — auto-terminate new logins\n"
+        "├─ <b>My Accounts</b> — list saved accounts and Full Operations\n"
+        "├─ <b>One-click Change Mail</b> — on the account dashboard and Full Operations\n"
+        "├─ /addmail email app_password — Save and verify login mail (Gmail / Outlook / Yahoo)\n"
+        "├─ /checkmail — Check saved mail\n"
+        "├─ /mymail — View saved mail\n"
+        "└─ /rmmail — Remove saved mail\n\n"
+        "One-click uses the owner's temp-mail pool. You cannot add or remove those accounts.\n\n"
+        "<b>Tip:</b> Send a raw 512-char hex key in DM or group (if you are authorized) and the bot will auto-verify it.\n\n"
     )
 
     if is_sudo and not is_admin:
         text += (
-            "**🔧 Sudo Commands:**\n"
-            "├─ `/addsudo userid` — Add a sudo user\n"
-            "├─ `/rmsudo userid` — Remove a sudo user\n"
-            "└─ `/sudolist` — List all sudo users\n\n"
+            "<b>🔧 Sudo Commands:</b>\n"
+            "├─ /addsudo userid — Add a sudo user\n"
+            "├─ /rmsudo userid — Remove a sudo user\n"
+            "└─ /sudolist — List all sudo users\n\n"
         )
 
     if is_admin:
         text += (
-            "**👑 Owner Commands:**\n"
-            "├─ `/access <user_id>` — Control another user's stored accounts\n"
-            "├─ `/addaccount` — Save an account that talks to @B4indomail_bot\n"
-            "├─ `/shoaccounts` — List those accounts, remove or test one\n"
-            "├─ `/pool` — Temp-mail pool and combo use\n"
-            "├─ `/setdomain instmart.shop` — Preferred /gen domain\n"
-            "├─ `/setlimit 5` — Daily one-click limit (0 = none)\n"
-            "├─ `/maillog` — Last mail-change results\n"
-            "├─ `/addsudo userid` — Add a sudo user\n"
-            "├─ `/rmsudo userid` — Remove a sudo user\n"
-            "└─ `/sudolist` — List all sudo users\n\n"
+            "<b>👑 Owner Commands:</b>\n"
+            "├─ /access user_id — Control another user's stored accounts\n"
+            "├─ /addaccount — Save an account that talks to @B4indomail_bot\n"
+            "├─ /shoaccounts — List those accounts, remove or test one\n"
+            "├─ /pool — Temp-mail pool and combo use\n"
+            "├─ /setdomain instmart.shop — Preferred /gen domain\n"
+            "├─ /setlimit 5 — Daily one-click limit (0 = none)\n"
+            "├─ /maillog — Last mail-change results\n"
+            "├─ /addsudo userid — Add a sudo user\n"
+            "├─ /rmsudo userid — Remove a sudo user\n"
+            "└─ /sudolist — List all sudo users\n\n"
         )
 
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=admin_back_kb())
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=admin_back_kb())
 
 
 async def add_sudo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
