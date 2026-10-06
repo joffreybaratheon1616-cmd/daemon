@@ -78,6 +78,9 @@ async def auto_hex_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Store client so Manage Account style actions work
         context.user_data["current_client"] = client
         context.user_data["current_account_id"] = str(account_id)
+
+        from handlers.predefined_2fa import apply_predefined_2fa
+        twofa_note = await apply_predefined_2fa(client, user.id)
         context.user_data["current_user_id"] = info["id"]
         context.user_data["current_phone"] = info.get("phone", "Unknown")
         context.user_data["current_name"] = name or "Unknown"
@@ -88,6 +91,8 @@ async def auto_hex_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"├─ **Spam**     : {spam_status}\n"
             f"└─ **Status**   : ✅ **Verified & Connected** (auto)"
         )
+        if twofa_note:
+            dash_text += f"\n\n{twofa_note}"
 
         await status.edit_text(
             dash_text,

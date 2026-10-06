@@ -15,6 +15,7 @@ def main_menu_kb():
             InlineKeyboardButton("🛡️ Safe / Guard", callback_data="guard_account", style="primary"),
         ],
         [InlineKeyboardButton("👤 My Accounts", callback_data="my_accounts", style="success")],
+        [InlineKeyboardButton("🔐 Predefined 2FA", callback_data="p2fa_menu", style="primary")],
     ]
     return InlineKeyboardMarkup(kb)
 

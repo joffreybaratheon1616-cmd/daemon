@@ -18,6 +18,7 @@ WELCOME_TEXT = (
     "clear all, fetch OTP, change mail\n"
     "├─ 🛡️ **Safe / Guard** — auto-logout intruders and notify you\n"
     "├─ 👤 **My Accounts** — view stored accounts, fetch OTP, allow temporary logins\n"
+    "├─ 🔐 **Predefined 2FA** — set a password that is added on hex login\n"
     "└─ 🔐 **Admin** — sudo users, email config, mail checker\n\n"
     "Select an option below 👇"
 )
