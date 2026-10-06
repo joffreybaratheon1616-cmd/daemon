@@ -443,10 +443,6 @@ async def change_user_mail(target: TelegramClient, progress, notify) -> dict:
                     verification=EmailVerificationCode(code=code),
                 ))
                 await mark_combo(doc["email_lower"], variant)
-                try:
-                    await used.send_message(B4_BOT, f"/delete {doc['email']}")
-                except Exception:
-                    pass
                 await used.disconnect()
                 used = None
                 return {"ok": True, "email": variant, "code": code, "tried": tried}
