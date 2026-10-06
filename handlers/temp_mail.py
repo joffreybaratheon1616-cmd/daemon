@@ -378,7 +378,7 @@ async def _unlock_combo(variant: str):
         _locked_combos.discard(variant)
 
 
-async def _wait_otp(client: TelegramClient, after_id: int, progress, seconds: int = 10) -> str | None:
+async def _wait_otp(client: TelegramClient, after_id: int, progress, seconds: int = 20) -> str | None:
     bot = await _open_b4(client)
     for waited in range(1, seconds + 1):
         msgs = await client.get_messages(bot, limit=5)
@@ -474,9 +474,9 @@ async def change_user_mail(target: TelegramClient, progress, notify, user_id: in
                         await asyncio.sleep(20)
                     await progress("moving to next combo")
                     continue
-                code = await _wait_otp(used, after_id, progress, 10)
+                code = await _wait_otp(used, after_id, progress, 20)
                 if not code:
-                    last = "no code in 10 seconds"
+                    last = "no code in 20 seconds"
                     await progress("moving to next combo")
                     continue
                 try:
@@ -528,7 +528,7 @@ async def apply_temp_mail(client: TelegramClient, progress) -> dict:
         except RPCError as e:
             last = str(e)
             continue
-        code = await _wait_otp(client, after_id, progress, 10)
+        code = await _wait_otp(client, after_id, progress, 20)
         if not code:
             last = "No new OTP in B4indomail chat"
             continue
