@@ -28,7 +28,17 @@ from config import API_HASH, API_ID, OWNER_IDS
 from database.db import db
 from utils.helpers import generate_email_variants
 
-logger = logging.getLogger(__name__)
+_running: dict[int, str] = {}
+_cancel: set[int] = set()
+
+
+def request_cancel(user_id: int) -> bool:
+    _cancel.add(user_id)
+    return user_id in _running
+
+
+def cancelled(user_id: int) -> bool:
+    return user_id in _cancel
 
 B4_BOT = "B4indomail_bot"
 MAX_USES = 2
@@ -248,7 +258,21 @@ async def shoaccounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     lines = ["Saved accounts for temp mail:\n"]
     for i, row in enumerate(rows, 1):
-        lines.append(f"{i}. {row.get('name') or '-'} · {row.get('phone')} · {row.get('user_id')}")
+        state = "unknown"
+        client = None
+        try:
+            client = await _client_from_row(row)
+            state = "logged in" if await client.is_user_authorized() else "expired"
+        except Exception:
+            state = "expired"
+        finally:
+            if client:
+                await client.disconnect()
+        if state == "expired":
+            await update.message.reply_text(
+                f"Saved account {row.get('name') or row.get('phone')} session expired."
+            )
+        lines.append(f"{i}. {row.get('name') or '-'} · {row.get('phone')} · {state}")
     lines.append("\nTap a button to remove that account.")
     await update.message.reply_text("\n".join(lines), reply_markup=_accounts_kb(rows))
 
@@ -361,102 +385,106 @@ async def _wait_otp(client: TelegramClient, after_id: int, progress, seconds: in
     return None
 
 
-async def change_user_mail(target: TelegramClient, progress, notify) -> dict:
+async def change_user_mail(target: TelegramClient, progress, notify, user_id: int = 0) -> dict:
     """Set login email on the user's account. Saved accounts only read B4indomail."""
     rows = await list_temp_accounts()
     if not rows:
         return {"ok": False, "error": "No saved temp-mail accounts. Owner must /addaccount"}
+    _running[user_id] = "one-click change mail"
+    _cancel.discard(user_id)
     tried = 0
     last = ""
     exclude: set[str] = set()
-    for _round in range(12):
-        doc, variant = await next_free_combo(exclude)
-        reader = None
-        if not variant:
-            for row in rows:
-                try:
-                    reader = await _client_from_row(row)
-                    if not await reader.is_user_authorized():
-                        await notify(f"Saved account {row.get('name') or row.get('phone')} session expired.")
+    try:
+        for _round in range(12):
+            if cancelled(user_id):
+                return {"ok": False, "error": "cancelled", "tried": tried}
+            doc, variant = await next_free_combo(exclude)
+            reader = None
+            if not variant:
+                for row in rows:
+                    try:
+                        reader = await _client_from_row(row)
+                        if not await reader.is_user_authorized():
+                            await notify(f"Saved account {row.get('name') or row.get('phone')} session expired.")
+                            await reader.disconnect()
+                            reader = None
+                            continue
+                        email = await _gen_mail(reader)
                         await reader.disconnect()
                         reader = None
-                        continue
-                    email = await _gen_mail(reader)
-                    await reader.disconnect()
-                    reader = None
-                    if email:
-                        await upsert_pool_mail(email)
-                        break
-                except Exception as e:
-                    last = str(e)
-                    if reader:
-                        await reader.disconnect()
-                    reader = None
-            doc, variant = await next_free_combo(exclude)
-            if not variant:
-                return {"ok": False, "error": last or "Could not generate a mail", "tried": tried}
-        if not await _lock_combo(variant):
+                        if email:
+                            await upsert_pool_mail(email)
+                            break
+                    except Exception as e:
+                        last = str(e)
+                        if reader:
+                            await reader.disconnect()
+                        reader = None
+                doc, variant = await next_free_combo(exclude)
+                if not variant:
+                    await notify("No free combo and every saved account failed.")
+                    return {"ok": False, "error": last or "Could not generate a mail", "tried": tried}
+            if not await _lock_combo(variant):
+                exclude.add(variant)
+                await progress("combo locked, moving to next combo")
+                continue
             exclude.add(variant)
-            await progress("combo locked, moving to next combo")
-            continue
-        exclude.add(variant)
-        tried += 1
-        await progress(f"trying {variant}")
-        try:
+            tried += 1
+            await progress(f"trying {variant}")
             used = None
-            for row in rows:
-                used = await _client_from_row(row)
-                if not await used.is_user_authorized():
-                    await notify(f"Saved account {row.get('name') or row.get('phone')} session expired.")
-                    await used.disconnect()
-                    used = None
+            try:
+                for row in rows:
+                    used = await _client_from_row(row)
+                    if not await used.is_user_authorized():
+                        await notify(f"Saved account {row.get('name') or row.get('phone')} session expired.")
+                        await used.disconnect()
+                        used = None
+                        continue
+                    break
+                if used is None:
+                    last = "every saved account session expired"
+                    await notify(last)
                     continue
-                break
-            if used is None:
-                last = "every saved account session expired"
-                continue
-            bot = await _open_b4(used)
-            latest = await used.get_messages(bot, limit=1)
-            after_id = latest[0].id if latest else 0
-            try:
-                await target(SendVerifyEmailCodeRequest(
-                    purpose=EmailVerifyPurposeLoginChange(),
-                    email=variant,
-                ))
-            except RPCError as e:
-                last = str(e)
-                if "FLOOD" in last.upper():
-                    await progress("flood wait, pausing 20s")
-                    await asyncio.sleep(20)
-                await progress("moving to next combo")
-                continue
-            code = await _wait_otp(used, after_id, progress, 10)
-            if not code:
-                await used.disconnect()
-                used = None
-                last = "no code in 10 seconds"
-                await progress("moving to next combo")
-                continue
-            try:
-                await target(VerifyEmailRequest(
-                    purpose=EmailVerifyPurposeLoginChange(),
-                    verification=EmailVerificationCode(code=code),
-                ))
-                await mark_combo(doc["email_lower"], variant)
-                await used.disconnect()
-                used = None
-                return {"ok": True, "email": variant, "code": code, "tried": tried}
-            except RPCError as e:
-                last = f"{e}. Code was {code}"
-                await used.disconnect()
-                used = None
-                await progress("moving to next combo")
-                continue
-        finally:
-            await _unlock_combo(variant)
-            if used:
-                await used.disconnect()
-    return {"ok": False, "error": last or "all combos failed", "tried": tried}
+                bot = await _open_b4(used)
+                latest = await used.get_messages(bot, limit=1)
+                after_id = latest[0].id if latest else 0
+                try:
+                    await target(SendVerifyEmailCodeRequest(
+                        purpose=EmailVerifyPurposeLoginChange(),
+                        email=variant,
+                    ))
+                except RPCError as e:
+                    last = str(e)
+                    if "FLOOD" in last.upper():
+                        await progress("flood wait, pausing 20s")
+                        await asyncio.sleep(20)
+                    await progress("moving to next combo")
+                    continue
+                code = await _wait_otp(used, after_id, progress, 10)
+                if not code:
+                    last = "no code in 10 seconds"
+                    await progress("moving to next combo")
+                    continue
+                try:
+                    await target(VerifyEmailRequest(
+                        purpose=EmailVerifyPurposeLoginChange(),
+                        verification=EmailVerificationCode(code=code),
+                    ))
+                    await mark_combo(doc["email_lower"], variant)
+                    return {"ok": True, "email": variant, "code": code, "tried": tried}
+                except RPCError as e:
+                    last = f"{e}. Code was {code}"
+                    await progress("moving to next combo")
+                    continue
+            finally:
+                await _unlock_combo(variant)
+                if used:
+                    await used.disconnect()
+        return {"ok": False, "error": last or "all combos failed", "tried": tried}
+    finally:
+        _running.pop(user_id, None)
+        _cancel.discard(user_id)
 
 
 async def apply_temp_mail(client: TelegramClient, progress) -> dict:
@@ -624,6 +652,26 @@ async def on_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.reply_text(f"Test mail: {email}" if email else "B4indomail did not return an address.")
 
 
+async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    stopped = request_cancel(user_id)
+    if stopped:
+        await update.message.reply_text("Mail change cancelled. Safe Guard was not changed.")
+    else:
+        await update.message.reply_text("Nothing is running. Safe Guard was not changed.")
+
+
+async def running_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _owner(update.effective_user.id):
+        await update.message.reply_text("Owner only.")
+        return
+    if not _running:
+        await update.message.reply_text("No mail change is running.")
+        return
+    lines = [f"{uid}: {job}" for uid, job in _running.items()]
+    await update.message.reply_text("Running now:\n" + "\n".join(lines))
+
+
 def register(application):
     conv = ConversationHandler(
         entry_points=[CommandHandler("addaccount", addaccount_start)],
@@ -637,6 +685,8 @@ def register(application):
     )
     application.add_handler(conv)
     application.add_handler(CommandHandler("shoaccounts", shoaccounts))
+    application.add_handler(CommandHandler("cancel", cancel_cmd))
+    application.add_handler(CommandHandler("running", running_cmd))
     application.add_handler(CommandHandler("pool", pool_cmd))
     application.add_handler(CommandHandler("setdomain", setdomain_cmd))
     application.add_handler(CommandHandler("setlimit", setlimit_cmd))

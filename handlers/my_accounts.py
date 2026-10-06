@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timezone, timedelta
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     ContextTypes,
     CallbackQueryHandler,
@@ -536,6 +536,17 @@ async def full_ops_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ACCOUNT_DETAIL
 
     if action == "fo_tempmail":
+        await safe_edit(
+            query,
+            "Change login mail on this account with temp mail?",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Yes, change mail", callback_data=f"fo_tempmail_yes:{account_id}", style="success")],
+                [InlineKeyboardButton("Cancel", callback_data=f"acc_fullops:{account_id}", style="primary")],
+            ]),
+        )
+        return ACCOUNT_DETAIL
+
+    if action == "fo_tempmail_yes":
         from handlers.temp_mail import change_user_mail
 
         async def progress(text, q=query):
@@ -551,7 +562,7 @@ async def full_ops_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
         await progress("starting")
-        result = await change_user_mail(client, progress, notify)
+        result = await change_user_mail(client, progress, notify, user_id)
         text = f"✅ Mail set to {result['email']}" if result.get("ok") else f"❌ {result.get('error')}"
         await query.edit_message_text(text, reply_markup=fo_back_kb(account_id))
         return ACCOUNT_DETAIL

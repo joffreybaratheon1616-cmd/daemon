@@ -46,7 +46,7 @@ async def error_handler(update, context):
         if update is not None and update.effective_chat is not None:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text=f"⚠️ **Error:** `{context.error}`",
+                text=f"Error: {context.error}",
             )
     except Exception:
         pass

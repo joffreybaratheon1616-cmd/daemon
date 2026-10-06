@@ -247,6 +247,16 @@ async def dashboard_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "mng_change_mail":
         return await ask_change_mail_email(update, context)
     if data == "mng_tempmail":
+        await safe_edit(
+            query,
+            "Change login mail on this account with temp mail?",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Yes, change mail", callback_data="mng_tempmail_yes", style="success")],
+                [InlineKeyboardButton("Cancel", callback_data="mng_back_dash", style="primary")],
+            ]),
+        )
+        return DASHBOARD
+    if data == "mng_tempmail_yes":
         return await run_temp_one_click(update, context)
     if data == "mng_mail_auto":
         return await run_auto_change_mail(update, context)
@@ -900,7 +910,7 @@ async def run_temp_one_click(update: Update, context: ContextTypes.DEFAULT_TYPE)
             pass
 
     await progress("starting")
-    result = await change_user_mail(client, progress, notify)
+    result = await change_user_mail(client, progress, notify, update.effective_user.id)
     from handlers.temp_mail import log_result
     await log_result(update.effective_user.id, result.get("email"), bool(result.get("ok")), result.get("error") or "set")
     retry = InlineKeyboardMarkup([[InlineKeyboardButton("🔁 Retry", callback_data="mng_tempmail", style="success")]])
