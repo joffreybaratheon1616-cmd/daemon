@@ -41,6 +41,7 @@ def cancelled(user_id: int) -> bool:
     return user_id in _cancel
 
 B4_BOT = "B4indomail_bot"
+MAX_USES = 2
 def _safe_int(value, default=0) -> int:
     if isinstance(value, bool):
         return int(value)
