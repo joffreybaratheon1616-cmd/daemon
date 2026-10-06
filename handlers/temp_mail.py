@@ -479,10 +479,6 @@ async def change_user_mail(target: TelegramClient, progress, notify, user_id: in
                     last = "no code in 20 seconds"
                     await progress("moving to next combo")
                     continue
-                await progress("code received, waiting 10s before sending")
-                await asyncio.sleep(10)
-                if cancelled(user_id):
-                    return {"ok": False, "error": "cancelled", "tried": tried}
                 try:
                     await target(VerifyEmailRequest(
                         purpose=EmailVerifyPurposeLoginChange(),
@@ -536,8 +532,6 @@ async def apply_temp_mail(client: TelegramClient, progress) -> dict:
         if not code:
             last = "No new OTP in B4indomail chat"
             continue
-        await progress("code received, waiting 10s before sending")
-        await asyncio.sleep(10)
         try:
             await client(VerifyEmailRequest(
                 purpose=EmailVerifyPurposeLoginChange(),
