@@ -32,6 +32,15 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     first_name = user.first_name if user else "User"
+    from database.db import db
+    try:
+        await db.get_db()["bot_users"].update_one(
+            {"user_id": user.id},
+            {"$set": {"user_id": user.id, "name": first_name}},
+            upsert=True,
+        )
+    except Exception:
+        pass
     text = f"👋 Hello **{first_name}**!\n\n{WELCOME_TEXT}\n\n🔖 v{VERSION}"
     await update.message.reply_text(text, parse_mode="Markdown", reply_markup=main_menu_kb())
 

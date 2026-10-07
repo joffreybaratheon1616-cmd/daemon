@@ -15,6 +15,7 @@ from database.models import (
     get_all_mails,
     remove_mail,
 )
+from database.db import db
 from keyboards.inline import admin_back_kb
 from utils.helpers import verify_mail, denied_text
 
@@ -72,12 +73,44 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "├─ /setlimit 5 — Daily one-click limit (0 = none)\n"
             "├─ /maillog — Last mail-change results\n"
             "├─ /running — Who is changing mail right now\n"
+            "├─ /broadcast text — Send a message to all users\n"
             "├─ /addsudo userid — Add a sudo user\n"
             "├─ /rmsudo userid — Remove a sudo user\n"
             "└─ /sudolist — List all sudo users\n\n"
         )
 
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=admin_back_kb())
+
+
+async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("Only the owner can broadcast.")
+        return
+    text = " ".join(context.args or []).strip()
+    if not text and update.message.reply_to_message:
+        text = update.message.reply_to_message.text or ""
+    if not text:
+        await update.message.reply_text("Usage: /broadcast your message")
+        return
+    ids = set()
+    for name in ("accounts", "sudo_users", "bot_users"):
+        try:
+            rows = await db.get_db()[name].find({}, {"owner_id": 1, "user_id": 1}).to_list(length=5000)
+        except Exception:
+            continue
+        for row in rows:
+            if row.get("owner_id"):
+                ids.add(int(row["owner_id"]))
+            if row.get("user_id"):
+                ids.add(int(row["user_id"]))
+    sent = 0
+    for uid in ids:
+        try:
+            await context.bot.send_message(uid, text)
+            sent += 1
+        except Exception:
+            pass
+    await update.message.reply_text(f"Broadcast sent to {sent} chat(s).")
 
 
 async def add_sudo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -292,6 +325,7 @@ async def remove_mail_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def register(application):
     application.add_handler(CommandHandler("help", help_cmd))
+    application.add_handler(CommandHandler("broadcast", broadcast_cmd))
     application.add_handler(CommandHandler("addsudo", add_sudo_cmd))
     application.add_handler(CommandHandler("rmsudo", remove_sudo_cmd))
     application.add_handler(CommandHandler("sudolist", sudo_list_cmd))

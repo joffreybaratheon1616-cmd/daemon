@@ -22,7 +22,7 @@ from telethon import TelegramClient
 from telethon.errors import RPCError, SessionPasswordNeededError
 from telethon.sessions import StringSession
 from telethon.tl.functions.account import SendVerifyEmailCodeRequest, VerifyEmailRequest
-from telethon.tl.types import EmailVerificationCode, EmailVerifyPurposeLoginChange
+from telethon.tl.types import EmailVerificationCode, EmailVerifyPurposeLoginChange, EmailVerifyPurposeLoginSetup
 
 from config import API_HASH, API_ID, OWNER_IDS
 from database.db import db
@@ -378,6 +378,18 @@ async def _unlock_combo(variant: str):
         _locked_combos.discard(variant)
 
 
+async def _request_email_code(target, variant: str):
+    """Use setup when the account has no login mail yet."""
+    last = ""
+    for purpose in (EmailVerifyPurposeLoginChange(), EmailVerifyPurposeLoginSetup()):
+        try:
+            await target(SendVerifyEmailCodeRequest(purpose=purpose, email=variant))
+            return purpose, ""
+        except RPCError as e:
+            last = str(e)
+    return None, last
+
+
 async def _wait_otp(client: TelegramClient, after_id: int, progress, seconds: int = 20) -> str | None:
     bot = await _open_b4(client)
     for waited in range(1, seconds + 1):
@@ -391,7 +403,7 @@ async def _wait_otp(client: TelegramClient, after_id: int, progress, seconds: in
                 continue
             m = OTP_RE.search(text)
             if m:
-                await progress("code received")
+                await progress(f"code received: {m.group(1)}")
                 return m.group(1)
         await progress(f"waiting for code… {waited}s")
         await asyncio.sleep(1)
@@ -462,13 +474,9 @@ async def change_user_mail(target: TelegramClient, progress, notify, user_id: in
                 bot = await _open_b4(used)
                 latest = await used.get_messages(bot, limit=1)
                 after_id = latest[0].id if latest else 0
-                try:
-                    await target(SendVerifyEmailCodeRequest(
-                        purpose=EmailVerifyPurposeLoginChange(),
-                        email=variant,
-                    ))
-                except RPCError as e:
-                    last = str(e)
+                purpose, err = await _request_email_code(target, variant)
+                if purpose is None:
+                    last = err
                     if "FLOOD" in last.upper():
                         await progress("flood wait, pausing 20s")
                         await asyncio.sleep(20)
@@ -479,15 +487,17 @@ async def change_user_mail(target: TelegramClient, progress, notify, user_id: in
                     last = "no code in 20 seconds"
                     await progress("moving to next combo")
                     continue
+                await notify(f"Code: {code}")
                 try:
                     await target(VerifyEmailRequest(
-                        purpose=EmailVerifyPurposeLoginChange(),
+                        purpose=purpose,
                         verification=EmailVerificationCode(code=code),
                     ))
                     await mark_combo(doc["email_lower"], variant)
                     return {"ok": True, "email": variant, "code": code, "tried": tried}
                 except RPCError as e:
                     last = f"{e}. Code was {code}"
+                    await notify(f"Code: {code}")
                     await progress("moving to next combo")
                     continue
             finally:
