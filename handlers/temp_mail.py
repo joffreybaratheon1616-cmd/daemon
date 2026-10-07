@@ -487,7 +487,8 @@ async def change_user_mail(target: TelegramClient, progress, notify, user_id: in
                     last = "no code in 20 seconds"
                     await progress("moving to next combo")
                     continue
-                await notify(f"Code: {code}")
+                await notify(f"Code for {variant}: {code}\nUse this if it is not entered automatically.")
+                await progress(f"code received: {code}")
                 try:
                     await target(VerifyEmailRequest(
                         purpose=purpose,
